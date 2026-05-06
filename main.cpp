@@ -28,7 +28,7 @@ static const int TIMER_MS = 16;
 static const float DT = 0.016f; // seconds per frame
 
 // ── Scene limits ─────────────────────────────────────────────────────────────
-static const int MAX_FISH = 40;
+static const int MAX_FISH = 50;
 static const int INIT_BUBBLES = 300; // scaled down from 300
 
 static const float PI = 3.14159265f;
