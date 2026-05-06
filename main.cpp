@@ -18,22 +18,31 @@
 #include <vector>
 #include <cstdio>
 
-static const int WIN_W = 1920;
-static const int WIN_H = 1080;
-static const float PI = 3.14159265f;
-static const int TIMER_MS = 16;
-static const int MAX_FISH = 20;
-static const int INIT_BUBBLES = 300;
+// ── Window / world dimensions ────────────────────────────────────────────────
+static const int WIN_W = 1200; // window pixel width  (was 1200)
+static const int WIN_H = 800;  // window pixel height (was 800)
 
+// ── Timing ───────────────────────────────────────────────────────────────────
+// 60 fps target (≈16 ms).  Smaller step → smoother curves.
+static const int TIMER_MS = 16;
+static const float DT = 0.016f; // seconds per frame
+
+// ── Scene limits ─────────────────────────────────────────────────────────────
+static const int MAX_FISH = 40;
+static const int INIT_BUBBLES = 300; // scaled down from 300
+
+static const float PI = 3.14159265f;
+
+// ─────────────────────────────────────────────────────────────────────────────
 struct Fish
 {
     float x, y;
     float baseY;
-    float speed;
-    float direction;
+    float speed;     // pixels / frame
+    float direction; // +1 right, -1 left
     float size;
     float r, g, b;
-    float time;
+    float time; // personal phase accumulator
 };
 
 struct Bubble
@@ -47,20 +56,21 @@ static std::vector<Fish> fishes;
 static std::vector<Bubble> bubbles;
 static float globalTime = 0.0f;
 
-static float randRange(float x, float y)
+// ─────────────────────────────────────────────────────────────────────────────
+static float randRange(float lo, float hi)
 {
-    return x + (y - x) * (static_cast<float>(rand()) / RAND_MAX);
+    return lo + (hi - lo) * (static_cast<float>(rand()) / RAND_MAX);
 }
 
+// ── Primitive helpers ─────────────────────────────────────────────────────────
 static void drawFilledCircle(float cx, float cy, float radius, int segments = 32)
 {
     glBegin(GL_TRIANGLE_FAN);
     glVertex2f(cx, cy);
     for (int i = 0; i <= segments; ++i)
     {
-        float angle = 2.0f * PI * i / segments;
-        glVertex2f(cx + radius * cosf(angle),
-                   cy + radius * sinf(angle));
+        float a = 2.0f * PI * i / segments;
+        glVertex2f(cx + radius * cosf(a), cy + radius * sinf(a));
     }
     glEnd();
 }
@@ -70,22 +80,22 @@ static void drawCircleOutline(float cx, float cy, float radius, int segments = 3
     glBegin(GL_LINE_LOOP);
     for (int i = 0; i < segments; ++i)
     {
-        float angle = 2.0f * PI * i / segments;
-        glVertex2f(cx + radius * cosf(angle),
-                   cy + radius * sinf(angle));
+        float a = 2.0f * PI * i / segments;
+        glVertex2f(cx + radius * cosf(a), cy + radius * sinf(a));
     }
     glEnd();
 }
 
+// ── Fish factory ──────────────────────────────────────────────────────────────
 static Fish makeFish(float x, float y)
 {
     Fish f;
     f.x = x;
     f.y = y;
     f.baseY = y;
-    f.speed = randRange(1.0f, 2.0f);
+    f.speed = randRange(0.6f, 1.4f); // was 1–2; smoother at smaller canvas
     f.direction = (rand() % 2 == 0) ? 1.0f : -1.0f;
-    f.size = randRange(0.8f, 1.9f);
+    f.size = randRange(0.6f, 1.4f); // was 0.8–1.9; scaled for 1000-wide canvas
     f.r = randRange(0.3f, 1.0f);
     f.g = randRange(0.2f, 1.0f);
     f.b = randRange(0.1f, 0.9f);
@@ -97,20 +107,19 @@ void initFish()
 {
     fishes.clear();
 
+    // Preset fish – positions rescaled to 1000×600 world
     struct
     {
-        float x, y;
-        float r, g, b;
-        float size;
+        float x, y, r, g, b, size;
     } presets[] = {
-        {150.0f, 400.0f, 1.0f, 0.55f, 0.0f, 2.5f},
-        {500.0f, 300.0f, 0.2f, 0.8f, 1.0f, 2.1f},
-        {300.0f, 200.0f, 1.0f, 0.2f, 0.4f, 1.5f},
-        {650.0f, 450.0f, 0.6f, 1.0f, 0.3f, 1.4f},
-        {250.0f, 500.0f, 1.0f, 0.55f, 0.0f, 2.4f},
-        {400.0f, 400.0f, 0.2f, 0.8f, 1.0f, 1.2f},
-        {700.0f, 300.0f, 1.0f, 0.2f, 0.4f, 2.0f},
-        {750.0f, 550.0f, 0.6f, 1.0f, 0.3f, 1.66f},
+        {120.0f, 300.0f, 1.0f, 0.55f, 0.0f, 1.9f},
+        {380.0f, 220.0f, 0.2f, 0.8f, 1.0f, 1.6f},
+        {220.0f, 150.0f, 1.0f, 0.2f, 0.4f, 1.2f},
+        {490.0f, 340.0f, 0.6f, 1.0f, 0.3f, 1.1f},
+        {190.0f, 380.0f, 1.0f, 0.55f, 0.0f, 1.8f},
+        {300.0f, 300.0f, 0.2f, 0.8f, 1.0f, 0.9f},
+        {530.0f, 220.0f, 1.0f, 0.2f, 0.4f, 1.5f},
+        {570.0f, 415.0f, 0.6f, 1.0f, 0.3f, 1.3f},
     };
 
     for (auto &p : presets)
@@ -124,13 +133,14 @@ void initFish()
     }
 }
 
+// ── Bubble factory ────────────────────────────────────────────────────────────
 static Bubble makeBubble()
 {
     Bubble b;
-    b.x = randRange(30.0f, WIN_W - 30.0f);
-    b.y = randRange(60.0f, 130.0f);
-    b.speed = randRange(0.4f, 1.8f);
-    b.radius = randRange(3.0f, 7.0f);
+    b.x = randRange(20.0f, WIN_W - 20.0f);
+    b.y = randRange(50.0f, 100.0f);
+    b.speed = randRange(0.3f, 1.3f);  // was 0.4–1.8; gentler rise
+    b.radius = randRange(2.5f, 5.5f); // was 3–7; scaled for smaller canvas
     return b;
 }
 
@@ -140,39 +150,42 @@ void initBubbles()
     for (int i = 0; i < INIT_BUBBLES; ++i)
     {
         Bubble b = makeBubble();
-        b.y = randRange(60.0f, WIN_H - 20.0f);
+        b.y = randRange(50.0f, WIN_H - 15.0f); // spread through full height at start
         bubbles.push_back(b);
     }
 }
+
+// ── Rock ─────────────────────────────────────────────────────────────────────
 void drawRock(float x, float y, float scale)
 {
     glColor3f(0.45f, 0.42f, 0.38f);
-
     glPushMatrix();
     glTranslatef(x, y, 0.0f);
     glScalef(scale, scale, 1.0f);
 
     glBegin(GL_POLYGON);
-    glVertex2f(-40, 0);
-    glVertex2f(40, 0);
-    glVertex2f(60, 30);
-    glVertex2f(20, 50);
-    glVertex2f(-30, 35);
+    glVertex2f(-30, 0);
+    glVertex2f(30, 0);
+    glVertex2f(45, 22);
+    glVertex2f(15, 38);
+    glVertex2f(-22, 26);
     glEnd();
 
     glColor3f(0.65f, 0.62f, 0.58f);
     glBegin(GL_POLYGON);
-    glVertex2f(0, 20);
-    glVertex2f(20, 30);
-    glVertex2f(10, 40);
-    glVertex2f(-10, 30);
+    glVertex2f(0, 15);
+    glVertex2f(15, 22);
+    glVertex2f(8, 30);
+    glVertex2f(-8, 22);
     glEnd();
 
     glPopMatrix();
 }
 
+// ── Background ────────────────────────────────────────────────────────────────
 void drawBackground()
 {
+    // Ocean gradient  (deep blue bottom → bright blue top)
     glBegin(GL_QUADS);
     glColor3f(0.0f, 0.18f, 0.42f);
     glVertex2f(0, 0);
@@ -184,43 +197,45 @@ void drawBackground()
     glVertex2f(0, WIN_H);
     glEnd();
 
+    // Sandy floor (60 px tall – scaled from 80 at 800 h)
     glColor3f(0.76f, 0.70f, 0.50f);
     glBegin(GL_QUADS);
     glVertex2f(0, 0);
     glVertex2f(WIN_W, 0);
-    glVertex2f(WIN_W, 80);
-    glVertex2f(0, 80);
+    glVertex2f(WIN_W, 60);
+    glVertex2f(0, 60);
     glEnd();
 
+    // Sand ripple lines
     glColor3f(0.68f, 0.62f, 0.42f);
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 5; ++i)
     {
-        float yy = 15.0f + i * 12.0f;
+        float yy = 12.0f + i * 9.0f;
         glBegin(GL_QUADS);
         glVertex2f(0, yy);
         glVertex2f(WIN_W, yy);
-        glVertex2f(WIN_W, yy + 4);
-        glVertex2f(0, yy + 4);
+        glVertex2f(WIN_W, yy + 3);
+        glVertex2f(0, yy + 3);
         glEnd();
     }
-    drawRock(150, 80, 1.5f);
-    drawRock(400, 80, 1.3f);
-    drawRock(750, 80, 1.4f);
-    drawRock(1100, 80, 1.5f);
-    drawRock(1300, 80, 1.2f);
-    drawRock(1500, 80, 1.5f);
-    drawRock(1800, 80, 1.7f);
-    glEnd();
+
+    // Rocks – x-positions spread across 1000-wide canvas
+    drawRock(110, 60, 1.1f);
+    drawRock(300, 60, 1.0f);
+    drawRock(560, 60, 1.05f);
+    drawRock(800, 60, 1.1f);
+    drawRock(960, 60, 0.9f);
 }
 
+// ── Fish drawing ──────────────────────────────────────────────────────────────
 void drawFish(const Fish &f)
 {
-
     glPushMatrix();
     glTranslatef(f.x, f.y, 0.0f);
     glScalef(f.direction * f.size, f.size, 1.0f);
 
-    float tailAngle = sinf(f.time * 3.0f) * 25.0f;
+    // Tail – oscillates with personal time at a comfortable frequency
+    float tailAngle = sinf(f.time * 3.0f) * 22.0f; // was 25°; slightly tighter
     glPushMatrix();
     glTranslatef(-28.0f, 0.0f, 0.0f);
     glRotatef(tailAngle, 0.0f, 0.0f, 1.0f);
@@ -232,29 +247,29 @@ void drawFish(const Fish &f)
     glEnd();
     glPopMatrix();
 
+    // Body ellipse
     glColor3f(f.r, f.g, f.b);
     glBegin(GL_POLYGON);
-    int segs = 24;
-    for (int i = 0; i < segs; ++i)
+    for (int i = 0; i < 24; ++i)
     {
-        float angle = 2.0f * PI * i / segs;
-        glVertex2f(cosf(angle) * 28.0f,
-                   sinf(angle) * 14.0f);
+        float a = 2.0f * PI * i / 24;
+        glVertex2f(cosf(a) * 28.0f, sinf(a) * 14.0f);
     }
     glEnd();
 
+    // Belly highlight
     glColor3f(fminf(f.r + 0.3f, 1.0f),
               fminf(f.g + 0.3f, 1.0f),
               fminf(f.b + 0.3f, 1.0f));
     glBegin(GL_POLYGON);
-    for (int i = 0; i < segs; ++i)
+    for (int i = 0; i < 24; ++i)
     {
-        float angle = 2.0f * PI * i / segs;
-        glVertex2f(cosf(angle) * 16.0f,
-                   sinf(angle) * 6.0f);
+        float a = 2.0f * PI * i / 24;
+        glVertex2f(cosf(a) * 16.0f, sinf(a) * 6.0f);
     }
     glEnd();
 
+    // Dorsal fin
     glColor3f(f.r * 0.85f, f.g * 0.85f, f.b * 0.85f);
     glBegin(GL_TRIANGLES);
     glVertex2f(5.0f, 14.0f);
@@ -262,6 +277,7 @@ void drawFish(const Fish &f)
     glVertex2f(12.0f, 26.0f);
     glEnd();
 
+    // Ventral fin
     glColor3f(f.r * 0.80f, f.g * 0.80f, f.b * 0.80f);
     glBegin(GL_TRIANGLES);
     glVertex2f(5.0f, -6.0f);
@@ -269,6 +285,7 @@ void drawFish(const Fish &f)
     glVertex2f(10.0f, -18.0f);
     glEnd();
 
+    // Eye
     glColor3f(1.0f, 1.0f, 1.0f);
     drawFilledCircle(14.0f, 4.0f, 5.5f);
     glColor3f(0.05f, 0.05f, 0.05f);
@@ -276,6 +293,7 @@ void drawFish(const Fish &f)
     glColor3f(1.0f, 1.0f, 1.0f);
     drawFilledCircle(16.0f, 5.5f, 1.0f);
 
+    // Mouth
     glColor3f(f.r * 0.6f, f.g * 0.5f, f.b * 0.5f);
     glLineWidth(1.5f);
     glBegin(GL_LINE_STRIP);
@@ -288,6 +306,7 @@ void drawFish(const Fish &f)
     glPopMatrix();
 }
 
+// ── Bubbles drawing ───────────────────────────────────────────────────────────
 void drawBubbles()
 {
     for (const Bubble &b : bubbles)
@@ -307,17 +326,21 @@ void drawBubbles()
     }
 }
 
+// ── Update ────────────────────────────────────────────────────────────────────
 void updateFish()
 {
     for (Fish &f : fishes)
     {
-        f.time += 0.09f;
+        // Smaller time step increment = smoother sine wave
+        f.time += 0.07f; // was 0.09
 
         f.x += f.speed * f.direction;
 
-        f.y = f.baseY + sinf(f.time * 1.5f) * 12.0f;
+        // Gentle bob – amplitude 10 px on a 600-tall canvas
+        f.y = f.baseY + sinf(f.time * 1.5f) * 10.0f; // was 12
 
-        float halfW = 32.0f * f.size;
+        // Wrap at canvas edges
+        float halfW = 30.0f * f.size;
         if (f.x > WIN_W + halfW)
         {
             f.direction = -1.0f;
@@ -329,15 +352,18 @@ void updateFish()
             f.x = -halfW;
         }
 
-        if (f.y < 110.0f)
+        // Keep fish inside vertical play-field (below water, above floor)
+        const float FLOOR_Y = 80.0f;
+        const float CEIL_Y = WIN_H - 20.0f;
+        if (f.y < FLOOR_Y)
         {
-            f.y = 110.0f;
-            f.baseY = 120.0f;
+            f.y = FLOOR_Y;
+            f.baseY = FLOOR_Y + 10.0f;
         }
-        if (f.y > WIN_H - 30.0f)
+        if (f.y > CEIL_Y)
         {
-            f.y = WIN_H - 30.0f;
-            f.baseY = WIN_H - 40.0f;
+            f.y = CEIL_Y;
+            f.baseY = CEIL_Y - 10.0f;
         }
     }
 }
@@ -347,15 +373,15 @@ void updateBubbles()
     for (Bubble &b : bubbles)
     {
         b.y += b.speed;
-        b.x += sinf(globalTime * 1.2f + b.y * 0.05f) * 0.3f;
+        // Gentle horizontal drift – lower frequency for smoother look
+        b.x += sinf(globalTime * 0.9f + b.y * 0.04f) * 0.25f;
 
         if (b.y > WIN_H + b.radius)
-        {
             b = makeBubble();
-        }
     }
 }
 
+// ── GL callbacks ──────────────────────────────────────────────────────────────
 void display()
 {
     glClear(GL_COLOR_BUFFER_BIT);
@@ -364,18 +390,16 @@ void display()
 
     drawBackground();
     drawBubbles();
-
     for (const Fish &f : fishes)
         drawFish(f);
 
     glDisable(GL_BLEND);
-
     glutSwapBuffers();
 }
 
 void timer(int /*value*/)
 {
-    globalTime += 0.016f;
+    globalTime += DT;
     updateFish();
     updateBubbles();
     glutPostRedisplay();
@@ -390,8 +414,8 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
     case 'F':
         if ((int)fishes.size() < MAX_FISH)
         {
-            float ny = randRange(120.0f, WIN_H - 50.0f);
-            float nx = randRange(50.0f, WIN_W - 50.0f);
+            float ny = randRange(90.0f, WIN_H - 40.0f);
+            float nx = randRange(40.0f, WIN_W - 40.0f);
             fishes.push_back(makeFish(nx, ny));
         }
         break;
@@ -421,7 +445,6 @@ void keyboard(unsigned char key, int /*x*/, int /*y*/)
 
     case 27:
         exit(0);
-        break;
     }
 }
 
@@ -435,6 +458,7 @@ void reshape(int w, int h)
     glLoadIdentity();
 }
 
+// ── Entry point ───────────────────────────────────────────────────────────────
 int main(int argc, char **argv)
 {
     srand(static_cast<unsigned>(time(nullptr)));
@@ -442,8 +466,9 @@ int main(int argc, char **argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
     glutInitWindowSize(WIN_W, WIN_H);
-    glutInitWindowPosition(0, 0);
+    glutInitWindowPosition(100, 100);
     glutCreateWindow("232611000037");
+
     glClearColor(0.0f, 0.15f, 0.35f, 1.0f);
 
     glMatrixMode(GL_PROJECTION);
