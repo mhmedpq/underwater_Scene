@@ -171,10 +171,10 @@ These can be adjusted at the top of `main.cpp`:
 
 | Constant | Default | Description |
 |---|---|---|
-| `WIN_W` | `1920` | Window width in pixels |
-| `WIN_H` | `1080` | Window height in pixels |
+| `WIN_W` | `1200` | Window width in pixels |
+| `WIN_H` | `800` | Window height in pixels |
 | `TIMER_MS` | `16` | Frame interval (~60 fps) |
-| `MAX_FISH` | `100` | Maximum number of fish |
+| `MAX_FISH` | `40` | Maximum number of fish |
 | `INIT_BUBBLES` | `300` | Initial bubble count |
 
 ---
